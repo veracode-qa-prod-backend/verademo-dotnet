@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Net;
 using System.Reflection;
 using System.Text;
 using Microsoft.AspNetCore.Mvc;
@@ -28,6 +29,7 @@ namespace Verademo.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         public ActionResult Tools(string host, string fortuneFile)
         {
             if (IsUserLoggedIn() == false)
@@ -50,7 +52,7 @@ namespace Verademo.Controllers
                 return "";
             }
 
-            logger.Info("Pinging: " + host);
+            logger.Info("Pinging: " + WebUtility.UrlEncode(host));
 
             var output = new StringBuilder();
             try

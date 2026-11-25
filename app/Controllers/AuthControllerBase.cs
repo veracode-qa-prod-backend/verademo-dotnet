@@ -1,4 +1,5 @@
 using System;
+using System.Data.SqlClient;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -22,8 +23,9 @@ namespace Verademo.Controllers
             using (var dbContext = new ApplicationDbContext())
             {
                 var found = dbContext.Database.SqlQuery<BasicUser>(
-                    "select username, real_name as realname, blab_name as blabname, is_admin as isadmin from users where username ='"
-                    + userName + "' and password='" + Md5Hash(passWord) + "';").ToList();
+                    "select username, real_name as realname, blab_name as blabname, is_admin as isadmin from users where username = @userName and password = @password",
+                    new SqlParameter("@userName", userName),
+                    new SqlParameter("@password", Sha256Hash(passWord))).ToList();
 
                 if (found.Count != 0)
                 {
@@ -67,7 +69,7 @@ namespace Verademo.Controllers
                 }));
         }
 
-        protected static string Md5Hash(string input)
+        protected static string Sha256Hash(string input)
         {
             var sb = new StringBuilder();
             if (string.IsNullOrEmpty(input))
@@ -75,9 +77,9 @@ namespace Verademo.Controllers
                 return sb.ToString();
             }
 
-            using (MD5 md5 = MD5.Create())
+            using (SHA256 sha256 = SHA256.Create())
             {
-                var retVal = md5.ComputeHash(Encoding.ASCII.GetBytes(input));
+                var retVal = sha256.ComputeHash(Encoding.ASCII.GetBytes(input));
 
                 foreach (var t in retVal)
                 {

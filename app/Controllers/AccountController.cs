@@ -10,6 +10,7 @@ using System.Text;
 using System.Reflection;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Security.Cryptography;
 using Newtonsoft.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
@@ -36,7 +37,7 @@ namespace Verademo.Controllers
         [HttpGet, ActionName("Login")]
         public ActionResult GetLogin(string ReturnUrl = "")
         {
-            logger.Info("Login page visited: " + ReturnUrl);
+            logger.Info("Login page visited: " + WebUtility.UrlEncode(ReturnUrl));
 
             if (IsUserLoggedIn())
             {
@@ -62,22 +63,20 @@ namespace Verademo.Controllers
             var deserializedUser = (CustomSerializeModel)JsonConvert.DeserializeObject<object>(Encoding.UTF8.GetString(unencodedUserDetails), new JsonSerializerSettings { TypeNameHandling = TypeNameHandling.All });
             /* END BAD CODE */
 
-            logger.Info("User details were retrieved for user: " + deserializedUser.UserName);
+            logger.Info("User details were retrieved for user: " + WebUtility.UrlEncode(deserializedUser.UserName));
 
             HttpContext.Session.SetString("username", deserializedUser.UserName);
 
-            //if (Url.IsLocalUrl(ReturnUrl))  
-            if (string.IsNullOrEmpty(ReturnUrl))
+            if (string.IsNullOrEmpty(ReturnUrl) || !Url.IsLocalUrl(ReturnUrl))
             {
                 return RedirectToAction("Feed", "Blab");
             }
 
-            /* START BAD CODE */
             return Redirect(ReturnUrl);
-            /* END BAD CODE */
         }
 
         [HttpPost, ActionName("Login")]
+        [ValidateAntiForgeryToken]
         public ActionResult PostLogin(LoginView loginViewModel, string ReturnUrl = "")
         {
             try
@@ -86,7 +85,7 @@ namespace Verademo.Controllers
                 {
                     var userDetails = LoginUser(loginViewModel.UserName, loginViewModel.Password);
 
-                    logger.Info("Entering PostLogin with target " + ReturnUrl + " and username " + loginViewModel.UserName);
+                    logger.Info("Entering PostLogin with target " + WebUtility.UrlEncode(ReturnUrl) + " and username " + WebUtility.UrlEncode(loginViewModel.UserName));
 
                     if (userDetails == null)
                     {
@@ -110,14 +109,12 @@ namespace Verademo.Controllers
                         });
                     }
 
-                    if (string.IsNullOrEmpty(ReturnUrl))
+                    if (string.IsNullOrEmpty(ReturnUrl) || !Url.IsLocalUrl(ReturnUrl))
                     {
                         return RedirectToAction("Feed", "Blab");
                     }
 
-                    /* START BAD CODE */
                     return Redirect(ReturnUrl);
-                    /* END BAD CODE */
                 }
             }
             catch (Exception ex)
@@ -169,6 +166,7 @@ namespace Verademo.Controllers
         }
 
         [HttpPost, ActionName("Profile")]
+        [ValidateAntiForgeryToken]
         public ActionResult PostProfile(string realName, string blabName, string userName, IFormFile file)
         {
             logger.Info("Entering PostProfile");
@@ -225,7 +223,7 @@ namespace Verademo.Controllers
             if (file != null &&  file.Length > 0) 
             {
                 // Get old image name, if any, to delete
-                var oldImage = imageDir + userName + ".png";
+                var oldImage = ValidateImagePath(imageDir, userName + ".png");
                 
                 if (System.IO.File.Exists(oldImage))
                 {
@@ -236,7 +234,7 @@ namespace Verademo.Controllers
                 var newFilename = Path.Combine(imageDir, userName);
                 newFilename += extension;
 
-                logger.Info("Saving new profile image: " + newFilename);
+                logger.Info("Saving new profile image: " + WebUtility.UrlEncode(newFilename));
 
                 //@AF:TODO
                 //file.SaveAs(newFilename);
@@ -245,22 +243,18 @@ namespace Verademo.Controllers
             Response.StatusCode = (int)HttpStatusCode.OK;
             var msg = "Successfully changed values!\\\\nusername: {0}\\\\nReal Name: {1}\\\\nBlab Name: {2}";
 
-            /* START BAD CODE */
-
             // Don't forget to escape braces so they're not included in the string.Format
             var respTemplate = "{{\"values\": {{\"username\": \"{0}\", \"realName\": \"{1}\", \"blabName\": \"{2}\"}}, \"message\": \"<script>alert('"+ msg + "');</script>\"}}";
 
             // JSON doesn't like single backslashes so escape them?
-            return Content(string.Format(respTemplate, userName.ToLower().Replace("\\", "\\\\"), realName.Replace("\\", "\\\\"), blabName.Replace("\\", "\\\\")), "application/json");
-
-            /* END BAD CODE */
+            return Content(string.Format(respTemplate, WebUtility.HtmlEncode(userName.ToLower().Replace("\\", "\\\\")), WebUtility.HtmlEncode(realName.Replace("\\", "\\\\")), WebUtility.HtmlEncode(blabName.Replace("\\", "\\\\"))), "application/json");
         }
 
         [HttpGet, ActionName("PasswordHint")]
         [AllowAnonymous]
         public ActionResult GetPasswordHint(string userName)
         {
-            logger.Info("Entering password-hint with username: " + userName);
+            logger.Info("Entering password-hint with username: " + WebUtility.UrlEncode(userName));
 
             if (string.IsNullOrEmpty(userName))
             {
@@ -327,8 +321,8 @@ namespace Verademo.Controllers
             }
 
             var imageDir = Path.Combine(_environment.WebRootPath, "images");
-            var oldFilename = Path.Combine(imageDir, oldUsername) + ".png";
-            var newFilename = Path.Combine(imageDir, newUsername) + ".png";
+            var oldFilename = ValidateImagePath(imageDir, oldUsername + ".png");
+            var newFilename = ValidateImagePath(imageDir, newUsername + ".png");
 
             if (System.IO.File.Exists(oldFilename))
             {
@@ -359,12 +353,13 @@ namespace Verademo.Controllers
 
         private void PopulateProfileViewModel(DbConnection connect, string username, ProfileViewModel viewModel)
         {
-            string sqlMyProfile = "SELECT username, real_name, blab_name, is_admin FROM users WHERE username = '" + username + "'";
+            string sqlMyProfile = "SELECT username, real_name, blab_name, is_admin FROM users WHERE username = @username";
             logger.Info(sqlMyProfile);
 
             using (var eventsCommand = connect.CreateCommand())
             {
                 eventsCommand.CommandText = sqlMyProfile;
+                eventsCommand.Parameters.Add(new SqlParameter {ParameterName = "@username", Value = username});
                 using (var userProfile = eventsCommand.ExecuteReader())
                 {
                     if (userProfile.Read())
@@ -389,9 +384,10 @@ namespace Verademo.Controllers
                 return RedirectToLogin(Request.QueryString.Value);
             }
 
-            var imagePath = Path.Combine(_environment.WebRootPath, "images", image);
+            var imageDir = Path.Combine(_environment.WebRootPath, "images");
+            var imagePath = ValidateImagePath(imageDir, image);
 
-            logger.Info("Fetching profile image: " + imagePath);
+            logger.Info("Fetching profile image: " + WebUtility.UrlEncode(imagePath));
 
             return PhysicalFile(imagePath, System.Net.Mime.MediaTypeNames.Application.Octet);
         }
@@ -405,9 +401,10 @@ namespace Verademo.Controllers
         }
         
         [HttpPost, ActionName("Register")]
+        [ValidateAntiForgeryToken]
         public ActionResult PostRegister (string username)
         {
-            logger.Info("PostRegister processRegister");
+            logger.Info("PostRegister processRegister: " + WebUtility.UrlEncode(username));
             var registerViewModel = new RegisterViewModel();
 
             HttpContext.Session.SetString("username", username);
@@ -447,15 +444,14 @@ namespace Verademo.Controllers
 
         private List<string> RetrieveMyEvents(DbConnection connect, string username)
         {
-            // START BAD CODE
-            var sqlMyEvents = "select event from users_history where blabber='" + 
-                              username + "' ORDER BY eventid DESC; ";
+            var sqlMyEvents = "select event from users_history where blabber=@username ORDER BY eventid DESC";
             logger.Info(sqlMyEvents);
             
             var myEvents = new List<string>();
             using (var eventsCommand = connect.CreateCommand())
             {
                 eventsCommand.CommandText = sqlMyEvents;
+                eventsCommand.Parameters.Add(new SqlParameter {ParameterName = "@username", Value = username});
                 using (var userHistoryResult = eventsCommand.ExecuteReader())
                 {
                     while (userHistoryResult.Read())
@@ -464,8 +460,6 @@ namespace Verademo.Controllers
                     }
                 }
             }
-
-            // END BAD CODE
 
             return myEvents;
         }
@@ -510,6 +504,7 @@ namespace Verademo.Controllers
         }
 
         [HttpPost, ActionName("RegisterFinish")]
+        [ValidateAntiForgeryToken]
         public ActionResult PostRegisterFinish(Verademo.Models.User user, string cpassword)
         {
             if (user.Password != cpassword)
@@ -525,7 +520,7 @@ namespace Verademo.Controllers
             }
 
             // Use the user class to get the hashed password.
-            user.Password = Md5Hash(user.Password);
+            user.Password = Sha256Hash(user.Password);
             user.CreatedAt = DateTime.Now;
             
             using (var dbContext = new ApplicationDbContext())
@@ -537,7 +532,9 @@ namespace Verademo.Controllers
             var imageDir = Path.Combine(_environment.WebRootPath, "images");
             try
             {
-                System.IO.File.Copy(Path.Combine(imageDir, "default_profile.png"), Path.Combine(imageDir, user.UserName) + ".png");
+                var sourcePath = Path.Combine(imageDir, "default_profile.png");
+                var destPath = ValidateImagePath(imageDir, user.UserName + ".png");
+                System.IO.File.Copy(sourcePath, destPath);
             }
             catch (Exception ex)
             {
@@ -549,6 +546,30 @@ namespace Verademo.Controllers
             //EmailUser(userName);
 
             return RedirectToAction("Login", "Account", new LoginView {UserName = user.UserName});
+        }
+
+        private string ValidateImagePath(string baseDir, string filename)
+        {
+            // Validate filename to prevent path traversal
+            if (string.IsNullOrEmpty(filename))
+            {
+                throw new ArgumentException("Filename cannot be null or empty");
+            }
+
+            // Remove any path separators from the filename
+            filename = Path.GetFileName(filename);
+
+            // Construct the full path
+            var fullPath = Path.GetFullPath(Path.Combine(baseDir, filename));
+            var baseFullPath = Path.GetFullPath(baseDir);
+
+            // Ensure the resolved path is within the base directory
+            if (!fullPath.StartsWith(baseFullPath + Path.DirectorySeparatorChar) && fullPath != baseFullPath)
+            {
+                throw new ArgumentException("Invalid file path");
+            }
+
+            return fullPath;
         }
     }
 }

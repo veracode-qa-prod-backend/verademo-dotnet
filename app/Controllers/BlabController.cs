@@ -34,7 +34,7 @@ namespace Verademo.Controllers
         private string sqlSearchBlabs =
             "SELECT b.blabber, b.content, b.timestamp " +
             "FROM blabs b " +
-            "WHERE b.content LIKE '%{0}%' " + 
+            "WHERE b.content LIKE @searchText " +
             "ORDER BY b.timestamp DESC";
         
         private string sqlBlabDetails = 
@@ -80,6 +80,7 @@ namespace Verademo.Controllers
         }
 
         [ActionName("SearchBlabs"), HttpPost]
+        [ValidateAntiForgeryToken]
         public ActionResult PostSearchBlabs(string searchText)
         {
             if (IsUserLoggedIn() == false)
@@ -92,7 +93,8 @@ namespace Verademo.Controllers
             {
                 dbContext.Database.Connection.Open();
                 var searchBlabs = dbContext.Database.Connection.CreateCommand();
-                searchBlabs.CommandText = string.Format(sqlSearchBlabs, searchText);
+                searchBlabs.CommandText = sqlSearchBlabs;
+                searchBlabs.Parameters.Add(new SqlParameter("@searchText", "%" + searchText + "%"));
                 
                 var searchBlabsResults = searchBlabs.ExecuteReader();
                 while (searchBlabsResults.Read())
@@ -193,6 +195,7 @@ namespace Verademo.Controllers
         }
 
         [ActionName("Feed"), HttpPost]
+        [ValidateAntiForgeryToken]
         public ActionResult PostFeed(string blab)
         {
             if (IsUserLoggedIn() == false)
@@ -255,7 +258,22 @@ namespace Verademo.Controllers
                 {
                     dbContext.Database.Connection.Open();
                     var blabbers = dbContext.Database.Connection.CreateCommand();
-                    blabbers.CommandText = string.Format(sqlBlabbers, sort);
+
+                    // Whitelist allowed sort values to prevent SQL injection
+                    var allowedSorts = new Dictionary<string, string>
+                    {
+                        { "blab_name ASC", "blab_name ASC" },
+                        { "blab_name DESC", "blab_name DESC" },
+                        { "username ASC", "username ASC" },
+                        { "username DESC", "username DESC" },
+                        { "created_at ASC", "created_at ASC" },
+                        { "created_at DESC", "created_at DESC" }
+                    };
+
+                    // Use whitelisted value or default
+                    var safeSort = allowedSorts.ContainsKey(sort) ? allowedSorts[sort] : "blab_name ASC";
+
+                    blabbers.CommandText = string.Format(sqlBlabbers, safeSort);
                     blabbers.Parameters.Add(new SqlParameter("@username", username));
 
                     var blabbersResults = blabbers.ExecuteReader();
@@ -286,6 +304,7 @@ namespace Verademo.Controllers
         }
 
         [HttpPost, ActionName("Blabbers")]
+        [ValidateAntiForgeryToken]
         public ActionResult PostBlabbers(string blabberUsername, string command)
         {
             if (IsUserLoggedIn() == false)
@@ -321,6 +340,7 @@ namespace Verademo.Controllers
 
 
         [HttpPost, ActionName("Blab")]
+        [ValidateAntiForgeryToken]
         public ActionResult PostBlab(int blabId, string comment)
         {
             if (IsUserLoggedIn() == false)

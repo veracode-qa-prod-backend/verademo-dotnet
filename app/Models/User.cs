@@ -49,9 +49,9 @@ namespace Verademo.Models
                 return sb.ToString();
             }
 
-            using (MD5 md5 = MD5.Create())
+            using (SHA256 sha256 = SHA256.Create())
             {
-                var retVal = md5.ComputeHash(Encoding.ASCII.GetBytes(input));
+                var retVal = sha256.ComputeHash(Encoding.ASCII.GetBytes(input));
 
                 foreach (var t in retVal)
                 {
