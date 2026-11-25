@@ -9,6 +9,8 @@ using Verademo.Models;
 using Verademo.Data;
 using Microsoft.AspNetCore.Hosting;
 using System.IO;
+using System.Security.Cryptography;
+using System.Net;
 
 namespace Verademo.Controllers
 {
@@ -64,6 +66,7 @@ namespace Verademo.Controllers
         }
 
         [HttpPost]
+        [ValidateAntiForgeryToken]
         [ActionName("Reset")]
         public ActionResult PostReset(string confirm, string primary)
         {
@@ -128,7 +131,6 @@ namespace Verademo.Controllers
 
         private void AddListeners(DbConnection connect)
         {
-            var rand = new Random();
 
             // Add the listeners        
             logger.Info("Preparing the Statement for adding listeners");
@@ -144,12 +146,12 @@ namespace Verademo.Controllers
 
                     for (var j = 1; j < _veraUsers.Length; j++)
                     {
-                        if (Convert.ToBoolean(rand.Next(0, 1)) && i != j)
+                        if (Convert.ToBoolean(RandomNumberGenerator.GetInt32(0, 2)) && i != j)
                         {
                             var blabber = _veraUsers[i].UserName;
                             var listener = _veraUsers[j].UserName;
 
-                            logger.Info("Adding " + listener + " as a listener of " + blabber);
+                            logger.Info("Adding " + WebUtility.UrlEncode(listener) + " as a listener of " + WebUtility.UrlEncode(blabber));
 
                             listenersStatement.Parameters.Add(blabber);
                             listenersStatement.Parameters.Add(listener);
@@ -170,7 +172,7 @@ namespace Verademo.Controllers
 
             foreach (var user in _veraUsers)
             {
-                logger.Info("Adding user " + user.UserName);
+                logger.Info("Adding user " + WebUtility.UrlEncode(user.UserName));
                 context.Users.Add(user);
             }
             context.SaveChanges();
@@ -179,8 +181,6 @@ namespace Verademo.Controllers
         private string[] AddBlabs(DbConnection connect)
         {
             logger.Info("Reading blabs from file");
-
-            var rand = new Random();
 
             var scriptPath = Path.Combine(_environment.ContentRootPath, "Resources/scripts/blabs.txt");
             var blabsContent = System.IO.File.ReadAllLines(scriptPath);
@@ -198,13 +198,13 @@ namespace Verademo.Controllers
                     blabsStatement.Transaction = tr;
 
                     // Get the array offset for a random user, except admin who's offset 0.
-                    var randomUserOffset = rand.Next(_veraUsers.Length - 2) + 1;
+                    var randomUserOffset = RandomNumberGenerator.GetInt32(_veraUsers.Length - 2) + 1;
 
                     // get the number of seconds until some time in the last 30 days.
-                    long vary = rand.Next(30 * 24 * 3600);
+                    long vary = RandomNumberGenerator.GetInt32(30 * 24 * 3600);
 
                     var username = _veraUsers[randomUserOffset].UserName;
-                    logger.Info("Adding a blab for " + username);
+                    logger.Info("Adding a blab for " + WebUtility.UrlEncode(username));
 
                     blabsStatement.Parameters.Add(new SqlParameter {ParameterName = "@blabber", Value = username});
                     blabsStatement.Parameters.Add(new SqlParameter {ParameterName = "@content", Value = blabContent});
@@ -223,8 +223,6 @@ namespace Verademo.Controllers
         {
             logger.Info("Reading comments from file");
             
-            var rand = new Random();
-            
             var scriptPath = Path.Combine(_environment.ContentRootPath, "Resources/scripts/comments.txt");
             var commentsContent = System.IO.File.ReadAllLines(scriptPath);
 
@@ -236,7 +234,7 @@ namespace Verademo.Controllers
                 for (var i = 1; i <= blabsContent.Length; i++)
                 {
                     // Add a random number of comment
-                    var count = rand.Next(6); // (between 0 and 6)
+                    var count = RandomNumberGenerator.GetInt32(6); // (between 0 and 6)
 
                     for (var j = 0; j < count; j++)
                     {
@@ -246,17 +244,17 @@ namespace Verademo.Controllers
                         commentsStatement.Transaction = tr;
 
                         // Get the array offset for a random user, except admin who's offset 0.
-                        var randomUserOffset = rand.Next(_veraUsers.Length - 2) + 1;
+                        var randomUserOffset = RandomNumberGenerator.GetInt32(_veraUsers.Length - 2) + 1;
                         var username = _veraUsers[randomUserOffset].UserName;
 
                         // Pick a random comment to add
-                        var commentNum = rand.Next(commentsContent.Length);
+                        var commentNum = RandomNumberGenerator.GetInt32(commentsContent.Length);
                         var comment = commentsContent[commentNum];
 
                         // get the number of seconds until some time in the last 30 days.
-                        long vary = rand.Next(30 * 24 * 3600);
+                        long vary = RandomNumberGenerator.GetInt32(30 * 24 * 3600);
 
-                        logger.Info("Adding a comment from " + username + " on blab ID " + Convert.ToString(i));
+                        logger.Info("Adding a comment from " + WebUtility.UrlEncode(username) + " on blab ID " + Convert.ToString(i));
                         commentsStatement.Parameters.Add(new SqlParameter {ParameterName = "@blabid", Value = i}  );
                         commentsStatement.Parameters.Add(new SqlParameter {ParameterName = "@blabber", Value = username}  );
                         commentsStatement.Parameters.Add(new SqlParameter {ParameterName = "@content", Value = comment}  );
